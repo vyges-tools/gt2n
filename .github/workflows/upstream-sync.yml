@@ -1,0 +1,84 @@
+name: Upstream Sync
+# Mirror azadnaeemi/GT2N main into this Vyges mirror.
+#
+# The Vyges additions (gt2n.vyges-pdk.json, upstream.yaml, VYGES-MIRROR.md, this
+# workflow) are mirror-only paths that do not exist upstream, so the merge never
+# touches them.
+on:
+  schedule:
+    - cron: '47 6 * * *'   # daily 06:47 UTC
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'merge = fold upstream/main in (normal). reset = force main to upstream/main, DISCARDING Vyges commits on main.'
+        required: false
+        default: merge
+        type: choice
+        options: [merge, reset]
+permissions:
+  contents: write
+concurrency:
+  group: upstream-sync
+  cancel-in-progress: false
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Sync from upstream main
+        run: |
+          set -euo pipefail
+          git config user.name  vyges-bot
+          git config user.email bot@vyges.com
+          git remote add upstream https://github.com/azadnaeemi/GT2N.git
+          git fetch --no-tags upstream main
+          git fetch upstream 'refs/tags/*:refs/tags/*' || true
+
+          MODE='${{ github.event.inputs.mode }}'
+          MODE="${MODE:-merge}"
+          before=$(git rev-parse HEAD)
+          echo "mode=$MODE  ours=$before  theirs=$(git rev-parse upstream/main)"
+
+          # GITHUB_TOKEN may never create, update or delete a file under
+          # .github/workflows -- such a push is rejected outright. Upstream ships
+          # no .github/ today, but the day it adds CI the sync would die on that
+          # rejection. So the workflow directory is PINNED to the Vyges set: after
+          # every sync it is made byte-identical to what is already on origin/main,
+          # and the push therefore carries no workflow diff at all. Changing these
+          # files is a human action with a workflow-scoped token, never something a
+          # sync does silently.
+          pin_workflows() {
+            rm -rf .github/workflows
+            git checkout origin/main -- .github/workflows 2>/dev/null || true
+            git add -A .github/workflows 2>/dev/null || true
+            git diff --cached --quiet || git commit -m 'vyges: pin .github/workflows to the Vyges set'
+          }
+
+          if [ "$MODE" = reset ]; then
+            # One-time realignment. --force-with-lease pinned to the sha we read,
+            # so a concurrent push aborts rather than being clobbered.
+            git checkout -B main upstream/main
+            pin_workflows
+            git push --force-with-lease="main:$before" origin main
+            echo "main reset to upstream/main $(git rev-parse upstream/main)"
+          else
+            # -X ours: on any conflict keep the Vyges side. Exits NON-ZERO on a
+            # conflict on purpose -- a sync that quietly gave up would leave the
+            # mirror stale while the badge stayed green.
+            if ! git merge --no-edit -X ours upstream/main; then
+              git merge --abort || true
+              echo "::error::merge conflict against upstream/main; mirror NOT updated"
+              exit 1
+            fi
+            pin_workflows
+            if [ "$(git rev-parse HEAD)" != "$before" ]; then
+              git push origin HEAD:main
+              echo "synced upstream changes"
+            else
+              echo "already up to date"
+            fi
+          fi
+          git push origin --tags || true

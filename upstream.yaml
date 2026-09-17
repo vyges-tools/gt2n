@@ -1,0 +1,19 @@
+schema_version: "vyges-upstream-v1"
+upstream:
+  type: "standalone"
+  repo: https://github.com/azadnaeemi/GT2N
+  branch: main
+  commit: fe179cb2aa424f93a2199a78bbbbed26c738f79c
+license:
+  spdx: BSD-3-Clause
+  file: LICENSE
+# NOTE: no `import:` section. That key maps upstream RTL subtrees into a Vyges IP repo;
+# a PDK mirror copies the whole tree verbatim, so there is nothing to map. The upstream
+# manifest schema (vyges-ip-internal/upstream/upstream-yaml.schema.json) still REQUIRES
+# `import` for type=standalone, so this file — like every other PDK mirror's — does not
+# validate against it. That is a schema gap, not a missing section here.
+#
+# Auto-synced daily by .github/workflows/upstream-sync.yml (merge-based). Vyges additions
+# are preserved: gt2n.vyges-pdk.json (PDK descriptor), upstream.yaml, VYGES-MIRROR.md,
+# and .github/workflows/ (pinned by the sync job).
+metadata_locked: true
